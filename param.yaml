@@ -1,0 +1,11 @@
+workflow_details:
+  name: "Nest Hatching"
+  description: "Daily operations — nests approaching or past expected hatching date"
+er_client:
+  data_source:
+    name: curacao
+# Default window covers max incubation period (~65 days) plus buffer.
+# Adjust since/until to focus on a specific period.
+time_range:
+  since: "2025-01-01T00:00:00.000Z"
+  until: "2026-07-01T00:00:00.000Z"
