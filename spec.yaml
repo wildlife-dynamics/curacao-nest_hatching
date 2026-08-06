@@ -23,14 +23,39 @@ requirements:
     channel: file:///tmp/ecoscope-workflows-custom/release/artifacts/
 
 rjsf-overrides:
-  # ── Status Colors ─────────────────────────────────────────────────────────────
-  Nests Map.properties.nests_colormap.properties.custom_colors.default:
-    - "#e53e3e"
-    - "#dd6b20"
-    - "#38a169"
-    - "#718096"
-  Nests Map.properties.nests_colormap.properties.custom_colors.description: >
-    Colors for Overdue, Due within 7 days, Active, Unknown — in that order.
+  properties:
+    # ── Time Range ────────────────────────────────────────────────────────────────
+    time_range.properties.until.description: >
+      The end time. Also used as "today" when computing each nest's status
+      (Overdue / Due within 7 days / Active) — set this to the actual current
+      date for accurate results.
+
+    # ── Status Colors ─────────────────────────────────────────────────────────────
+    nests_colormap.properties.custom_colors.default:
+      - "#e53e3e"
+      - "#dd6b20"
+      - "#38a169"
+      - "#718096"
+    nests_colormap.properties.custom_colors.description: >
+      Colors for Overdue, Due within 7 days, Active — in that order.
+
+    # ── Grouping ──────────────────────────────────────────────────────────────────
+    groupers.properties.groupers.items.anyOf:
+      - "$ref": "#/$defs/ValueGrouper"
+    groupers.properties.groupers.default:
+      - index_name: beach
+
+    # ── Map Zoom ──────────────────────────────────────────────────────────────────
+    Nests Map.properties.nests_map_max_zoom.properties.var.title: Max Zoom
+    Nests Map.properties.nests_map_max_zoom.properties.var.default: 17
+    Nests Map.properties.nests_map_max_zoom.properties.var.description: "Maximum zoom level for the nests map."
+
+  $defs:
+    ValueGrouper.properties.index_name.oneOf:
+      - const: beach
+        title: Beach
+      - const: location
+        title: Location
 
 task-instance-defaults:
   skipif:
@@ -55,6 +80,10 @@ workflow:
     task: set_time_range
     partial:
       time_format: "%d %b %Y"
+
+  - name: Set Groupers
+    id: groupers
+    task: set_groupers
 
   - name: Base Maps
     id: base_maps
@@ -98,28 +127,51 @@ workflow:
     task: extract_nest_due_fields
     partial:
       df: ${{ workflow.all_events_processed.return }}
+      time_range: ${{ workflow.time_range.return }}
+
+  # Colormap runs once on the full (ungrouped) dataframe so that every group
+  # shares the same status→color assignment — apply_color_map assigns colors by
+  # first-appearance order of the values it's given, so running it per-group
+  # instead would risk different colors for the same status in different groups.
+  - name: Nests Colormap
+    id: nests_colormap
+    task: apply_qualitative_color_map
+    partial:
+      df: ${{ workflow.nests_df.return }}
+      input_column_name: status
+      colormap: Set1
+
+  - name: Split by Groupers
+    id: grouped_nests
+    task: split_groups
+    partial:
+      df: ${{ workflow.nests_colormap.return }}
+      groupers: ${{ workflow.groupers.return }}
 
   # ── Headline Stats ────────────────────────────────────────────────────────────
 
   - title: Headline Stats
     type: task-group
-    description: Count of nests that are overdue or due within 7 days.
+    description: Count of nests that are overdue or due within 7 days, per group.
     tasks:
 
       - name: Filter Overdue Nests
         id: overdue_nests
         task: filter_row_values
         partial:
-          df: ${{ workflow.nests_df.return }}
           column: status
           values:
             - Overdue
+        mapvalues:
+          argnames: df
+          argvalues: ${{ workflow.grouped_nests.return }}
 
       - name: Overdue Nests Count
         id: overdue_count
         task: dataframe_count
-        partial:
-          df: ${{ workflow.overdue_nests.return }}
+        mapvalues:
+          argnames: df
+          argvalues: ${{ workflow.overdue_nests.return }}
 
       - name: Overdue Nests Widget
         id: overdue_widget
@@ -130,22 +182,36 @@ workflow:
         partial:
           title: "Overdue Nests"
           decimal_places: 0
-          data: ${{ workflow.overdue_count.return }}
+        map:
+          argnames: [view, data]
+          argvalues: ${{ workflow.overdue_count.return }}
+
+      - name: Merge Overdue Nests Widget Views
+        id: overdue_widget_merged
+        task: merge_widget_views
+        skipif:
+          conditions:
+            - never
+        partial:
+          widgets: ${{ workflow.overdue_widget.return }}
 
       - name: Filter Nests Due Within 7 Days
         id: due7_nests
         task: filter_row_values
         partial:
-          df: ${{ workflow.nests_df.return }}
           column: status
           values:
             - Due within 7 days
+        mapvalues:
+          argnames: df
+          argvalues: ${{ workflow.grouped_nests.return }}
 
       - name: Nests Due Within 7 Days Count
         id: due7_count
         task: dataframe_count
-        partial:
-          df: ${{ workflow.due7_nests.return }}
+        mapvalues:
+          argnames: df
+          argvalues: ${{ workflow.due7_nests.return }}
 
       - name: Nests Due Within 7 Days Widget
         id: due7_widget
@@ -156,7 +222,18 @@ workflow:
         partial:
           title: "Due Within 7 Days"
           decimal_places: 0
-          data: ${{ workflow.due7_count.return }}
+        map:
+          argnames: [view, data]
+          argvalues: ${{ workflow.due7_count.return }}
+
+      - name: Merge Due Within 7 Days Widget Views
+        id: due7_widget_merged
+        task: merge_widget_views
+        skipif:
+          conditions:
+            - never
+        partial:
+          widgets: ${{ workflow.due7_widget.return }}
 
   # ── Map ───────────────────────────────────────────────────────────────────────
 
@@ -165,52 +242,60 @@ workflow:
     description: ""
     tasks:
 
-      - name: Nests Colormap
-        id: nests_colormap
-        task: apply_qualitative_color_map
-        partial:
-          df: ${{ workflow.nests_df.return }}
-          input_column_name: status
-          custom_colors:
-            - "#e53e3e"
-            - "#dd6b20"
-            - "#38a169"
-            - "#718096"
+      - id: nests_map_max_zoom
+        task: set_int_var
 
-      - name: Nests Layer
-        id: nests_layer
+      - id: nests_layer
         task: create_nesting_layer
         partial:
-          df: ${{ workflow.nests_colormap.return }}
           client: ${{ workflow.er_client.return }}
           use_icons: false
+          legend_label_column: status
+        mapvalues:
+          argnames: df
+          argvalues: ${{ workflow.grouped_nests.return }}
 
       - name: Nests View State
         id: nests_view_state
         task: compute_fitted_view_state
         partial:
-          geo_layers: ${{ workflow.nests_layer.return }}
-          max_zoom: 15
+          max_zoom: ${{ workflow.nests_map_max_zoom.return }}
+        mapvalues:
+          argnames: geo_layers
+          argvalues: ${{ workflow.nests_layer.return }}
+
+      - name: Combine Nests Layer and View State
+        id: nests_map_inputs
+        task: groupbykey
+        partial:
+          iterables:
+            - ${{ workflow.nests_layer.return }}
+            - ${{ workflow.nests_view_state.return }}
 
       - name: Draw Nests Map
         id: nests_map
-        task: draw_map_curacao
+        task: ecoscope.platform.tasks.results.draw_map
         partial:
-          geo_layers: ${{ workflow.nests_layer.return }}
           tile_layers: ${{ workflow.base_maps.return }}
           static: false
-          max_zoom: 15
-          view_state: ${{ workflow.nests_view_state.return }}
+          output_type: html
+          title: null
+          max_zoom: ${{ workflow.nests_map_max_zoom.return }}
           legend_style:
             placement: bottom-right
+        mapvalues:
+          argnames: [geo_layers, view_state]
+          argvalues: ${{ workflow.nests_map_inputs.return }}
 
       - name: Persist Nests Map
         id: persist_nests_map
         task: persist_text
         partial:
-          text: ${{ workflow.nests_map.return }}
           root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
           filename_suffix: nests_map
+        mapvalues:
+          argnames: text
+          argvalues: ${{ workflow.nests_map.return }}
 
       - name: Nests Map Widget
         id: nests_map_widget
@@ -220,7 +305,18 @@ workflow:
             - never
         partial:
           title: "Nests Due for Hatching"
-          data: ${{ workflow.persist_nests_map.return }}
+        map:
+          argnames: [view, data]
+          argvalues: ${{ workflow.persist_nests_map.return }}
+
+      - name: Merge Nests Map Widget Views
+        id: nests_map_widget_merged
+        task: merge_widget_views
+        skipif:
+          conditions:
+            - never
+        partial:
+          widgets: ${{ workflow.nests_map_widget.return }}
 
   # ── Summary Table ─────────────────────────────────────────────────────────────
 
@@ -232,28 +328,33 @@ workflow:
       - name: Nests Due Table
         id: nests_due_table_df
         task: create_nests_due_table
-        partial:
-          df: ${{ workflow.nests_df.return }}
+        mapvalues:
+          argnames: df
+          argvalues: ${{ workflow.grouped_nests.return }}
 
       - name: Draw Nests Due Table
         id: nests_due_table_drawn
         task: draw_table
         partial:
-          dataframe: ${{ workflow.nests_due_table_df.return }}
           columns: null
           table_config:
             enable_sorting: true
             enable_filtering: true
             enable_download: true
           widget_id: "nests_due_table_widget"
+        mapvalues:
+          argnames: dataframe
+          argvalues: ${{ workflow.nests_due_table_df.return }}
 
       - name: Persist Nests Due Table
         id: persist_nests_due_table
         task: persist_text
         partial:
-          text: ${{ workflow.nests_due_table_drawn.return }}
           root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
           filename_suffix: nests_due_table
+        mapvalues:
+          argnames: text
+          argvalues: ${{ workflow.nests_due_table_drawn.return }}
 
       - name: Nests Due Table Widget
         id: nests_due_table_widget
@@ -263,19 +364,30 @@ workflow:
             - never
         partial:
           title: "Nest Summary"
-          data: ${{ workflow.persist_nests_due_table.return }}
+        map:
+          argnames: [view, data]
+          argvalues: ${{ workflow.persist_nests_due_table.return }}
+
+      - name: Merge Nests Due Table Widget Views
+        id: nests_due_table_widget_merged
+        task: merge_widget_views
+        skipif:
+          conditions:
+            - never
+        partial:
+          widgets: ${{ workflow.nests_due_table_widget.return }}
 
   # ── Dashboard ─────────────────────────────────────────────────────────────────
 
   - name: Create Dashboard
     id: dashboard
-    task: gather_nests_due_dashboard
+    task: gather_dashboard
     partial:
       details: ${{ workflow.workflow_details.return }}
-      nests_df: ${{ workflow.nests_df.return }}
+      groupers: ${{ workflow.groupers.return }}
       widgets:
-        - ${{ workflow.overdue_widget.return }}
-        - ${{ workflow.due7_widget.return }}
-        - ${{ workflow.nests_map_widget.return }}
-        - ${{ workflow.nests_due_table_widget.return }}
+        - ${{ workflow.overdue_widget_merged.return }}
+        - ${{ workflow.due7_widget_merged.return }}
+        - ${{ workflow.nests_map_widget_merged.return }}
+        - ${{ workflow.nests_due_table_widget_merged.return }}
       time_range: ${{ workflow.time_range.return }}

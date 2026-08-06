@@ -9,3 +9,8 @@ er_client:
 time_range:
   since: "2025-01-01T00:00:00.000Z"
   until: "2026-07-01T00:00:00.000Z"
+groupers:
+  groupers:
+    - index_name: beach
+nests_map_max_zoom:
+  var: 17

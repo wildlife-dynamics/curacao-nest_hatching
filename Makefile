@@ -71,6 +71,13 @@ build: ## Build ext-curacao conda artifact into local channel
 	@cd $(EXT_LIB_DIR) && BUILD_PKG=curacao pixi run build-release
 	@echo "$(MINT_GREEN)✔ Artifact written to $(LOCAL_CHANNEL)$(RESET)"
 
+recompile: build ## Build ext, compile spec and update workflow env (faster)
+	@echo ""
+	@echo "$(VIOLET)➜ $(BOLD)Recompiling spec.yaml...$(RESET)"
+	@pixi run recompile-nest-hatching
+	@echo ""
+	@echo "$(MINT_GREEN)✔ Recompile complete$(RESET)"
+
 compile: build ## Build ext, compile spec and install workflow env
 	@echo ""
 	@echo "$(VIOLET)➜ $(BOLD)Compiling spec.yaml...$(RESET)"
@@ -117,6 +124,13 @@ run: setup ## Run the workflow with param.yaml (real data — no mock IO)
 open: ## Open all HTML outputs in the browser
 	$(call print_head,🌐,Opening Outputs,$(AQUA))
 	@ls -t $(OUTPUT_DIR)/*.html | xargs open
+	@echo ""
+
+refresh: ## Clear rattler package cache for a clean rebuild
+	$(call print_head,🔄,Clearing Rattler Cache,$(GOLD))
+	@rm -rf ~/Library/Caches/rattler/cache/pkgs/.icu-* ~/Library/Caches/rattler/cache/pkgs/icu-*
+	@rm -rf ~/Library/Caches/rattler/cache/pkgs/.python-3* ~/Library/Caches/rattler/cache/pkgs/python-3*
+	@echo "  $(MINT_GREEN)✔$(RESET) $(SLATE)Cache cleared — run$(RESET) $(AQUA)make compile$(RESET) $(SLATE)to rebuild$(RESET)"
 	@echo ""
 
 clean: ## Clean output directory
