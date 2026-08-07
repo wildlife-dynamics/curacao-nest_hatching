@@ -458,6 +458,7 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
         .partial(
             client=er_client,
             use_icons=False,
+            icon_size=32,
             legend_label_column="status",
             **(params.get("nests_layer") or {}),
         )

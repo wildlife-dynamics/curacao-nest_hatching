@@ -363,15 +363,6 @@
           "description": "Outline width in pixels. Only applies when icons are disabled and stroked=True.",
           "ecoscope:advanced": true
         },
-        "icon_size": {
-          "default": 32,
-          "maximum": 128,
-          "minimum": 8,
-          "title": "Icon Size",
-          "type": "integer",
-          "description": "Icon size in pixels. Only applies when icons are enabled.",
-          "ecoscope:advanced": true
-        },
         "tooltip_columns": {
           "items": {
             "type": "string"
@@ -523,7 +514,6 @@
         "stroked",
         "scatter_line_color",
         "scatter_line_width",
-        "icon_size",
         "tooltip_columns"
       ]
     },

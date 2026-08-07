@@ -4,5 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 Makefile.local
+Makefile
 ecoscope-workflows-nest-hatching-workflow/
 .scripts/
