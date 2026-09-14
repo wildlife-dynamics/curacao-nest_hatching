@@ -19,16 +19,14 @@ requirements:
     version: 0.9.2
     channel: conda-forge
   - name: ecoscope-workflows-ext-curacao
-    version: "0.0.4"
+    version: "0.0.7"
     channel: https://repo.prefix.dev/ecoscope-workflows-custom/
 
 rjsf-overrides:
   properties:
     # ── Time Range ────────────────────────────────────────────────────────────────
     time_range.properties.until.description: >
-      The end time. Also used as "today" when computing each nest's status
-      (Overdue / Due within 7 days / Active) — set this to the actual current
-      date for accurate results.
+      The end time for fetching nests.
 
     # ── Status Colors ─────────────────────────────────────────────────────────────
     nests_colormap.properties.custom_colors.default:
@@ -37,7 +35,7 @@ rjsf-overrides:
       - "#38a169"
       - "#718096"
     nests_colormap.properties.custom_colors.description: >
-      Colors for Overdue, Due within 7 days, Active — in that order.
+      Colors for Overdue, Due Within 2 Weeks, Active — in that order.
 
     # ── Grouping ──────────────────────────────────────────────────────────────────
     groupers.properties.groupers.items.anyOf:
@@ -49,6 +47,14 @@ rjsf-overrides:
     Nests Map.properties.nests_map_max_zoom.properties.var.title: Max Zoom
     Nests Map.properties.nests_map_max_zoom.properties.var.default: 17
     Nests Map.properties.nests_map_max_zoom.properties.var.description: "Maximum zoom level for the nests map."
+
+    # ── Word Report ───────────────────────────────────────────────────────────────
+    report_template_path.properties.var.title: Report Template Path
+    report_template_path.properties.var.description: >
+      Path or URL to the .docx Jinja2 template used for the nests-due-for-hatching
+      Word report.
+    report_template_path.properties.var.default: "https://raw.githubusercontent.com/wildlife-dynamics/curacao-nest_hatching/main/resources/templates/nests_due_hatching_template.docx"
+    report_template_path.properties.var.ecoscope:advanced: true
 
   $defs:
     ValueGrouper.properties.index_name.oneOf:
@@ -88,6 +94,10 @@ workflow:
   - name: Base Maps
     id: base_maps
     task: set_base_maps
+
+  - name: Report Template Path
+    id: report_template_path
+    task: set_string_var
 
   # ── Fetch & Process ───────────────────────────────────────────────────────────
 
@@ -141,6 +151,17 @@ workflow:
       input_column_name: status
       colormap: Set1
 
+  # Extracted once, from the full colored (ungrouped) dataframe, so the table
+  # reuses whatever colors the map ended up with (custom or default palette)
+  # rather than a separately hardcoded color map that could drift out of sync.
+  - name: Nests Status Color Map
+    id: nests_status_color_map
+    task: extract_value_color_map
+    partial:
+      df: ${{ workflow.nests_colormap.return }}
+      value_column: status
+      color_column: column_color
+
   - name: Split by Groupers
     id: grouped_nests
     task: split_groups
@@ -152,7 +173,7 @@ workflow:
 
   - title: Headline Stats
     type: task-group
-    description: Count of nests that are overdue or due within 7 days, per group.
+    description: Count of nests that are overdue or due within 2 weeks, per group.
     tasks:
 
       - name: Filter Overdue Nests
@@ -195,38 +216,38 @@ workflow:
         partial:
           widgets: ${{ workflow.overdue_widget.return }}
 
-      - name: Filter Nests Due Within 7 Days
+      - name: Filter Nests Due Within 2 Weeks
         id: due7_nests
         task: filter_row_values
         partial:
           column: status
           values:
-            - Due within 7 days
+            - Due Within 2 Weeks
         mapvalues:
           argnames: df
           argvalues: ${{ workflow.grouped_nests.return }}
 
-      - name: Nests Due Within 7 Days Count
+      - name: Nests Due Within 2 Weeks Count
         id: due7_count
         task: dataframe_count
         mapvalues:
           argnames: df
           argvalues: ${{ workflow.due7_nests.return }}
 
-      - name: Nests Due Within 7 Days Widget
+      - name: Nests Due Within 2 Weeks Widget
         id: due7_widget
         task: create_single_value_widget_single_view
         skipif:
           conditions:
             - never
         partial:
-          title: "Due Within 7 Days"
+          title: "Due Within 2 Weeks"
           decimal_places: 0
         map:
           argnames: [view, data]
           argvalues: ${{ workflow.due7_count.return }}
 
-      - name: Merge Due Within 7 Days Widget Views
+      - name: Merge Due Within 2 Weeks Widget Views
         id: due7_widget_merged
         task: merge_widget_views
         skipif:
@@ -335,8 +356,10 @@ workflow:
 
       - name: Draw Nests Due Table
         id: nests_due_table_drawn
-        task: draw_table
+        task: draw_table_with_cell_colors
         partial:
+          column: Status
+          color_map: ${{ workflow.nests_status_color_map.return }}
           columns: null
           table_config:
             enable_sorting: true
@@ -377,6 +400,128 @@ workflow:
             - never
         partial:
           widgets: ${{ workflow.nests_due_table_widget.return }}
+
+  # ── Word Report ───────────────────────────────────────────────────────────────
+  # Unlike the dashboard (split per-beach via grouped_nests), the report is one
+  # combined document covering all beaches, so its map/table/counts are built
+  # once directly on the ungrouped nests_colormap dataframe.
+
+  - title: Word Report
+    type: task-group
+    description: ""
+    tasks:
+
+      - name: Nests Layer (Report)
+        id: nests_layer_report
+        task: create_nesting_layer
+        partial:
+          client: ${{ workflow.er_client.return }}
+          df: ${{ workflow.nests_colormap.return }}
+          use_icons: false
+          icon_size: 32
+          legend_label_column: status
+
+      - name: Nests View State (Report)
+        id: nests_view_state_report
+        task: compute_fitted_view_state
+        partial:
+          geo_layers: ${{ workflow.nests_layer_report.return }}
+          max_zoom: ${{ workflow.nests_map_max_zoom.return }}
+
+      - name: Draw Nests Map (Report)
+        id: nests_map_report
+        task: ecoscope.platform.tasks.results.draw_map
+        partial:
+          geo_layers: ${{ workflow.nests_layer_report.return }}
+          view_state: ${{ workflow.nests_view_state_report.return }}
+          tile_layers: ${{ workflow.base_maps.return }}
+          static: false
+          output_type: html
+          title: null
+          max_zoom: ${{ workflow.nests_map_max_zoom.return }}
+          legend_style:
+            placement: bottom-right
+
+      - name: Persist Nests Map (Report)
+        id: persist_nests_map_report
+        task: persist_text
+        partial:
+          text: ${{ workflow.nests_map_report.return }}
+          root_path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+          filename_suffix: nests_map_report
+
+      - name: Convert Nests Map to PNG
+        id: nests_map_png
+        task: html_to_png
+        partial:
+          html_path: ${{ workflow.persist_nests_map_report.return }}
+          output_dir: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+          config:
+            full_page: false
+
+      - name: Nests Due Table (Report)
+        id: nests_due_table_report
+        task: create_nests_due_table
+        partial:
+          df: ${{ workflow.nests_colormap.return }}
+
+      - name: Total Nests Count
+        id: total_nests_count
+        task: dataframe_count
+        partial:
+          df: ${{ workflow.nests_colormap.return }}
+
+      - name: Filter Overdue Nests (Report)
+        id: overdue_nests_report
+        task: filter_row_values
+        partial:
+          df: ${{ workflow.nests_colormap.return }}
+          column: status
+          values:
+            - Overdue
+
+      - name: Overdue Nests Count (Report)
+        id: overdue_count_report
+        task: dataframe_count
+        partial:
+          df: ${{ workflow.overdue_nests_report.return }}
+
+      - name: Filter Nests Due Within 2 Weeks (Report)
+        id: due7_nests_report
+        task: filter_row_values
+        partial:
+          df: ${{ workflow.nests_colormap.return }}
+          column: status
+          values:
+            - Due Within 2 Weeks
+
+      - name: Nests Due Within 2 Weeks Count (Report)
+        id: due7_count_report
+        task: dataframe_count
+        partial:
+          df: ${{ workflow.due7_nests_report.return }}
+
+      - name: Normalize Output Dir
+        id: norm_output_dir
+        task: remove_file_scheme
+        partial:
+          path: ${{ env.ECOSCOPE_WORKFLOWS_RESULTS }}
+
+      - name: Generate DOCX Report
+        id: docx_report
+        task: generate_nests_due_report
+        skipif:
+          conditions:
+            - never
+        partial:
+          time_range: ${{ workflow.time_range.return }}
+          nests_map_png: ${{ workflow.nests_map_png.return }}
+          nests_due_table: ${{ workflow.nests_due_table_report.return }}
+          total_nests_count: ${{ workflow.total_nests_count.return }}
+          overdue_count: ${{ workflow.overdue_count_report.return }}
+          due_within_2_weeks_count: ${{ workflow.due7_count_report.return }}
+          template_path: ${{ workflow.report_template_path.return }}
+          output_dir: ${{ workflow.norm_output_dir.return }}
 
   # ── Dashboard ─────────────────────────────────────────────────────────────────
 

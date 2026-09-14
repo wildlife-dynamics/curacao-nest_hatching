@@ -5,5 +5,4 @@ __pycache__/
 .DS_Store
 Makefile.local
 Makefile
-ecoscope-workflows-nest-hatching-workflow/
 .scripts/

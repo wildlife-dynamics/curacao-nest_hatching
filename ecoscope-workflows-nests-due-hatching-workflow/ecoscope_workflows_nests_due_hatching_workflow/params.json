@@ -289,6 +289,57 @@
       "required": [],
       "title": "Base Maps"
     },
+    "report_template_path": {
+      "additionalProperties": false,
+      "properties": {
+        "var": {
+          "title": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "var"
+      ],
+      "type": "object",
+      "title": "Report Template Path"
+    },
+    "all_events": {
+      "additionalProperties": false,
+      "properties": {
+        "event_states": {
+          "default": null,
+          "items": {
+            "type": "string",
+            "oneOf": [
+              {
+                "const": "new",
+                "title": "New"
+              },
+              {
+                "const": "active",
+                "title": "Active"
+              },
+              {
+                "const": "resolved",
+                "title": "Resolved"
+              },
+              {
+                "const": "review",
+                "title": "Review"
+              }
+            ]
+          },
+          "title": "Event State",
+          "type": "array",
+          "description": "Choose to analyze events with a certain state. If left empty, events of all states will be analyzed",
+          "uniqueItems": true,
+          "ecoscope:advanced": true
+        }
+      },
+      "required": [],
+      "type": "object",
+      "title": "Fetch Nest Events"
+    },
     "nests_colormap": {
       "additionalProperties": false,
       "properties": {
@@ -375,6 +426,63 @@
       "required": [],
       "type": "object",
       "title": ""
+    },
+    "nests_layer_report": {
+      "additionalProperties": false,
+      "properties": {
+        "scatter_radius": {
+          "default": 5,
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Scatter Radius",
+          "type": "integer",
+          "description": "Point radius in pixels. Only applies when icons are disabled.",
+          "ecoscope:advanced": true
+        },
+        "scatter_opacity": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Scatter Opacity",
+          "type": "number",
+          "description": "Point opacity (0\u20131). Only applies when icons are disabled.",
+          "ecoscope:advanced": true
+        },
+        "stroked": {
+          "default": false,
+          "title": "Stroked",
+          "type": "boolean",
+          "description": "Draw an outline around each point. Helps distinguish overlapping/adjacent points. Only applies when icons are disabled.",
+          "ecoscope:advanced": true
+        },
+        "scatter_line_color": {
+          "default": "#ffffff",
+          "title": "Scatter Line Color",
+          "type": "string",
+          "description": "Outline color (hex). Only applies when icons are disabled and stroked=True.",
+          "ecoscope:advanced": true
+        },
+        "scatter_line_width": {
+          "default": 1.0,
+          "maximum": 10.0,
+          "minimum": 0.0,
+          "title": "Scatter Line Width",
+          "type": "number",
+          "description": "Outline width in pixels. Only applies when icons are disabled and stroked=True.",
+          "ecoscope:advanced": true
+        },
+        "tooltip_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tooltip Columns",
+          "type": "array",
+          "description": "Columns to show when hovering over a point. Leave empty to show all properties."
+        }
+      },
+      "required": [],
+      "type": "object",
+      "title": "Nests Layer (Report)"
     }
   },
   "$defs": {
@@ -517,15 +625,28 @@
         "tooltip_columns"
       ]
     },
+    "nests_layer_report": {
+      "ui:order": [
+        "scatter_radius",
+        "scatter_opacity",
+        "stroked",
+        "scatter_line_color",
+        "scatter_line_width",
+        "tooltip_columns"
+      ]
+    },
     "ui:order": [
       "workflow_details",
       "er_client",
       "time_range",
       "groupers",
       "base_maps",
+      "report_template_path",
+      "all_events",
       "nests_colormap",
       "nests_map_max_zoom",
-      "nests_layer"
+      "nests_layer",
+      "nests_layer_report"
     ]
   },
   "additionalProperties": false

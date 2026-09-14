@@ -48,7 +48,7 @@
           "format": "date-time",
           "title": "Until",
           "type": "string",
-          "description": "The end time. Also used as \"today\" when computing each nest's status (Overdue / Due within 7 days / Active) \u2014 set this to the actual current date for accurate results.\n"
+          "description": "The end time for fetching nests.\n"
         },
         "timezone": {
           "allOf": [
@@ -287,6 +287,60 @@
       "required": [],
       "title": "Base Maps"
     },
+    "report_template_path": {
+      "additionalProperties": false,
+      "properties": {
+        "var": {
+          "title": "Report Template Path",
+          "type": "string",
+          "description": "Path or URL to the .docx Jinja2 template used for the nests-due-for-hatching Word report.\n",
+          "default": "https://raw.githubusercontent.com/wildlife-dynamics/curacao-nest_hatching/main/resources/templates/nests_due_hatching_template.docx",
+          "ecoscope:advanced": true
+        }
+      },
+      "required": [
+        "var"
+      ],
+      "type": "object",
+      "title": "Report Template Path"
+    },
+    "all_events": {
+      "additionalProperties": false,
+      "properties": {
+        "event_states": {
+          "default": null,
+          "items": {
+            "type": "string",
+            "oneOf": [
+              {
+                "const": "new",
+                "title": "New"
+              },
+              {
+                "const": "active",
+                "title": "Active"
+              },
+              {
+                "const": "resolved",
+                "title": "Resolved"
+              },
+              {
+                "const": "review",
+                "title": "Review"
+              }
+            ]
+          },
+          "title": "Event State",
+          "type": "array",
+          "description": "Choose to analyze events with a certain state. If left empty, events of all states will be analyzed",
+          "uniqueItems": true,
+          "ecoscope:advanced": true
+        }
+      },
+      "required": [],
+      "type": "object",
+      "title": "Fetch Nest Events"
+    },
     "nests_colormap": {
       "additionalProperties": false,
       "properties": {
@@ -296,7 +350,7 @@
           },
           "title": "Custom Colors",
           "type": "array",
-          "description": "Colors for Overdue, Due within 7 days, Active \u2014 in that order.\n",
+          "description": "Colors for Overdue, Due Within 2 Weeks, Active \u2014 in that order.\n",
           "default": [
             "#e53e3e",
             "#dd6b20",
@@ -386,6 +440,70 @@
           "required": [],
           "type": "object",
           "title": ""
+        }
+      }
+    },
+    "Word Report": {
+      "type": "object",
+      "description": "",
+      "ecoscope:task_group": true,
+      "properties": {
+        "nests_layer_report": {
+          "additionalProperties": false,
+          "properties": {
+            "scatter_radius": {
+              "default": 5,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Scatter Radius",
+              "type": "integer",
+              "description": "Point radius in pixels. Only applies when icons are disabled.",
+              "ecoscope:advanced": true
+            },
+            "scatter_opacity": {
+              "default": 1.0,
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "title": "Scatter Opacity",
+              "type": "number",
+              "description": "Point opacity (0\u20131). Only applies when icons are disabled.",
+              "ecoscope:advanced": true
+            },
+            "stroked": {
+              "default": false,
+              "title": "Stroked",
+              "type": "boolean",
+              "description": "Draw an outline around each point. Helps distinguish overlapping/adjacent points. Only applies when icons are disabled.",
+              "ecoscope:advanced": true
+            },
+            "scatter_line_color": {
+              "default": "#ffffff",
+              "title": "Scatter Line Color",
+              "type": "string",
+              "description": "Outline color (hex). Only applies when icons are disabled and stroked=True.",
+              "ecoscope:advanced": true
+            },
+            "scatter_line_width": {
+              "default": 1.0,
+              "maximum": 10.0,
+              "minimum": 0.0,
+              "title": "Scatter Line Width",
+              "type": "number",
+              "description": "Outline width in pixels. Only applies when icons are disabled and stroked=True.",
+              "ecoscope:advanced": true
+            },
+            "tooltip_columns": {
+              "items": {
+                "type": "string"
+              },
+              "title": "Tooltip Columns",
+              "type": "array",
+              "description": "Columns to show when hovering over a point. Leave empty to show all properties."
+            }
+          },
+          "required": [],
+          "type": "object",
+          "title": "Nests Layer (Report)"
         }
       }
     }
@@ -546,14 +664,29 @@
         ]
       }
     },
+    "Word Report": {
+      "nests_layer_report": {
+        "ui:order": [
+          "scatter_radius",
+          "scatter_opacity",
+          "stroked",
+          "scatter_line_color",
+          "scatter_line_width",
+          "tooltip_columns"
+        ]
+      }
+    },
     "ui:order": [
       "workflow_details",
       "er_client",
       "time_range",
       "groupers",
       "base_maps",
+      "report_template_path",
+      "all_events",
       "nests_colormap",
-      "Nests Map"
+      "Nests Map",
+      "Word Report"
     ]
   },
   "additionalProperties": false

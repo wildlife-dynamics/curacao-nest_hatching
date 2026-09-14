@@ -3,6 +3,7 @@ import os
 from typing import Any
 
 from ecoscope.platform.tasks.analysis import dataframe_count as dataframe_count
+from ecoscope.platform.tasks.config import set_string_var as set_string_var
 from ecoscope.platform.tasks.config import set_workflow_details as set_workflow_details
 from ecoscope.platform.tasks.filter import set_time_range as set_time_range
 from ecoscope.platform.tasks.groupby import groupbykey as groupbykey
@@ -22,7 +23,6 @@ from ecoscope.platform.tasks.results import (
     create_single_value_widget_single_view as create_single_value_widget_single_view,
 )
 from ecoscope.platform.tasks.results import draw_map as draw_map
-from ecoscope.platform.tasks.results import draw_table as draw_table
 from ecoscope.platform.tasks.results import gather_dashboard as gather_dashboard
 from ecoscope.platform.tasks.results import merge_widget_views as merge_widget_views
 from ecoscope.platform.tasks.results import set_base_maps as set_base_maps
@@ -44,9 +44,22 @@ from ecoscope_workflows_ext_curacao.tasks import (
     create_nests_due_table as create_nests_due_table,
 )
 from ecoscope_workflows_ext_curacao.tasks import (
+    draw_table_with_cell_colors as draw_table_with_cell_colors,
+)
+from ecoscope_workflows_ext_curacao.tasks import (
     extract_nest_due_fields as extract_nest_due_fields,
 )
+from ecoscope_workflows_ext_curacao.tasks import (
+    extract_value_color_map as extract_value_color_map,
+)
+from ecoscope_workflows_ext_curacao.tasks import (
+    generate_nests_due_report as generate_nests_due_report,
+)
 from ecoscope_workflows_ext_curacao.tasks import set_int_var as set_int_var
+from ecoscope_workflows_ext_custom.tasks.io import html_to_png as html_to_png
+from ecoscope_workflows_ext_custom.tasks.io import (
+    remove_file_scheme as remove_file_scheme,
+)
 from ecoscope_workflows_ext_custom.tasks.transformation import (
     filter_row_values as filter_row_values,
 )
@@ -145,6 +158,23 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
         .call()
     )
 
+    report_template_path = (
+        task(set_string_var)
+        .validate()
+        .set_task_instance_id("report_template_path")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(**(params.get("report_template_path") or {}))
+        .call()
+    )
+
     all_events = (
         task(get_events)
         .validate()
@@ -237,6 +267,28 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
             input_column_name="status",
             colormap="Set1",
             **(params.get("nests_colormap") or {}),
+        )
+        .call()
+    )
+
+    nests_status_color_map = (
+        task(extract_value_color_map)
+        .validate()
+        .set_task_instance_id("nests_status_color_map")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            df=nests_colormap,
+            value_column="status",
+            color_column="column_color",
+            **(params.get("nests_status_color_map") or {}),
         )
         .call()
     )
@@ -347,7 +399,7 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
         )
         .partial(
             column="status",
-            values=["Due within 7 days"],
+            values=["Due Within 2 Weeks"],
             **(params.get("due7_nests") or {}),
         )
         .mapvalues(argnames=["df"], argvalues=grouped_nests)
@@ -383,7 +435,7 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
             unpack_depth=1,
         )
         .partial(
-            title="Due Within 7 Days",
+            title="Due Within 2 Weeks",
             decimal_places=0,
             **(params.get("due7_widget") or {}),
         )
@@ -583,7 +635,7 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
     )
 
     nests_due_table_drawn = (
-        task(draw_table)
+        task(draw_table_with_cell_colors)
         .validate()
         .set_task_instance_id("nests_due_table_drawn")
         .handle_errors()
@@ -596,6 +648,8 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
             unpack_depth=1,
         )
         .partial(
+            column="Status",
+            color_map=nests_status_color_map,
             columns=None,
             table_config={
                 "enable_sorting": True,
@@ -660,6 +714,280 @@ def main(params: dict[str, Any], validate_params_schema: bool = True):
         .partial(
             widgets=nests_due_table_widget,
             **(params.get("nests_due_table_widget_merged") or {}),
+        )
+        .call()
+    )
+
+    nests_layer_report = (
+        task(create_nesting_layer)
+        .validate()
+        .set_task_instance_id("nests_layer_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            client=er_client,
+            df=nests_colormap,
+            use_icons=False,
+            icon_size=32,
+            legend_label_column="status",
+            **(params.get("nests_layer_report") or {}),
+        )
+        .call()
+    )
+
+    nests_view_state_report = (
+        task(compute_fitted_view_state)
+        .validate()
+        .set_task_instance_id("nests_view_state_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            geo_layers=nests_layer_report,
+            max_zoom=nests_map_max_zoom,
+            **(params.get("nests_view_state_report") or {}),
+        )
+        .call()
+    )
+
+    nests_map_report = (
+        task(draw_map)
+        .validate()
+        .set_task_instance_id("nests_map_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            geo_layers=nests_layer_report,
+            view_state=nests_view_state_report,
+            tile_layers=base_maps,
+            static=False,
+            output_type="html",
+            title=None,
+            max_zoom=nests_map_max_zoom,
+            legend_style={"placement": "bottom-right"},
+            **(params.get("nests_map_report") or {}),
+        )
+        .call()
+    )
+
+    persist_nests_map_report = (
+        task(persist_text)
+        .validate()
+        .set_task_instance_id("persist_nests_map_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            text=nests_map_report,
+            root_path=os.environ["ECOSCOPE_WORKFLOWS_RESULTS"],
+            filename_suffix="nests_map_report",
+            **(params.get("persist_nests_map_report") or {}),
+        )
+        .call()
+    )
+
+    nests_map_png = (
+        task(html_to_png)
+        .validate()
+        .set_task_instance_id("nests_map_png")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            html_path=persist_nests_map_report,
+            output_dir=os.environ["ECOSCOPE_WORKFLOWS_RESULTS"],
+            config={"full_page": False},
+            **(params.get("nests_map_png") or {}),
+        )
+        .call()
+    )
+
+    nests_due_table_report = (
+        task(create_nests_due_table)
+        .validate()
+        .set_task_instance_id("nests_due_table_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(df=nests_colormap, **(params.get("nests_due_table_report") or {}))
+        .call()
+    )
+
+    total_nests_count = (
+        task(dataframe_count)
+        .validate()
+        .set_task_instance_id("total_nests_count")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(df=nests_colormap, **(params.get("total_nests_count") or {}))
+        .call()
+    )
+
+    overdue_nests_report = (
+        task(filter_row_values)
+        .validate()
+        .set_task_instance_id("overdue_nests_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            df=nests_colormap,
+            column="status",
+            values=["Overdue"],
+            **(params.get("overdue_nests_report") or {}),
+        )
+        .call()
+    )
+
+    overdue_count_report = (
+        task(dataframe_count)
+        .validate()
+        .set_task_instance_id("overdue_count_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(df=overdue_nests_report, **(params.get("overdue_count_report") or {}))
+        .call()
+    )
+
+    due7_nests_report = (
+        task(filter_row_values)
+        .validate()
+        .set_task_instance_id("due7_nests_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            df=nests_colormap,
+            column="status",
+            values=["Due Within 2 Weeks"],
+            **(params.get("due7_nests_report") or {}),
+        )
+        .call()
+    )
+
+    due7_count_report = (
+        task(dataframe_count)
+        .validate()
+        .set_task_instance_id("due7_count_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(df=due7_nests_report, **(params.get("due7_count_report") or {}))
+        .call()
+    )
+
+    norm_output_dir = (
+        task(remove_file_scheme)
+        .validate()
+        .set_task_instance_id("norm_output_dir")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                any_is_empty_df,
+                any_dependency_skipped,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            path=os.environ["ECOSCOPE_WORKFLOWS_RESULTS"],
+            **(params.get("norm_output_dir") or {}),
+        )
+        .call()
+    )
+
+    docx_report = (
+        task(generate_nests_due_report)
+        .validate()
+        .set_task_instance_id("docx_report")
+        .handle_errors()
+        .with_tracing()
+        .skipif(
+            conditions=[
+                never,
+            ],
+            unpack_depth=1,
+        )
+        .partial(
+            time_range=time_range,
+            nests_map_png=nests_map_png,
+            nests_due_table=nests_due_table_report,
+            total_nests_count=total_nests_count,
+            overdue_count=overdue_count_report,
+            due_within_2_weeks_count=due7_count_report,
+            template_path=report_template_path,
+            output_dir=norm_output_dir,
+            **(params.get("docx_report") or {}),
         )
         .call()
     )

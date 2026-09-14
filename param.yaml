@@ -12,5 +12,13 @@ time_range:
 groupers:
   groupers:
     - index_name: beach
+nests_colormap:
+  custom_colors:
+    - "#e53e3e"
+    - "#dd6b20"
+    - "#38a169"
+    - "#718096"
 nests_map_max_zoom:
   var: 17
+report_template_path:
+  var: "/Users/zak/Documents/w-dynamics/curacao-nest_hatching/resources/templates/nests_due_hatching_template.docx"
